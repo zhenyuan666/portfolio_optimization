@@ -1,0 +1,136 @@
+---
+title: "Stock_data_retrieve"
+output: pdf_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+rm(list = ls())
+#require('quantmod')
+#require('xts')
+# change here
+setwd('/Users/zhenyuanliu/Dropbox/Spring2017/stat222/newdata') 
+yearly <- read.csv("yearly_large.csv" )
+
+year <- unique(yearly) %>%
+  filter(!is.na(bkvlps)) %>%
+  filter(bkvlps > 0) %>%
+  filter(!is.na(csho))
+
+# count has all the tic that has 30 years full records of bkvlps and csho
+count <- year %>%
+  group_by(tic) %>%
+  summarise(count=n()) %>%
+  arrange(count) %>%
+  filter(count == 30)
+
+monthly <- read.csv("monthly_1986_2015_large.csv" )
+# filter data
+month <- unique(monthly) %>%
+  filter(!is.na(trt1m)) %>%
+  filter(!is.na(prccm)) %>%
+  group_by(tic) %>%
+  summarise(count1 = n()) %>%
+  filter(count1 == 360)
+
+tic_list <- count %>%
+  inner_join(month, by = c("tic"))
+
+list <- tic_list[["tic"]] # list contains all the valid tic s 
+```
+
+
+```{r}
+data <- rep(0, 30*length(list))
+bkvlps <- matrix(data, nrow = 30, ncol = length(list))
+csho <- matrix(data, nrow = 30, ncol = length(list))
+# only report the tic's in list
+year <- year %>%
+ filter(tic %in% list)
+
+index = 1
+for(i in list) {
+  curr = year %>%
+    filter(tic == i)
+  my_data <- curr[["bkvlps"]]
+  my_data2 <- curr[["csho"]]
+  
+  bkvlps[,index] = my_data
+  csho[, index] = my_data2
+  index = index + 1
+}
+# for the monthly data
+data_month <- rep(0, 360*length(list))
+trt1m <- matrix(data_month, nrow = 360, ncol = length(list))
+prccm <- matrix(data_month, nrow = 360, ncol = length(list))
+index = 1
+for(i in list) {
+  curr_month <- monthly %>%
+    filter(tic == i) %>%
+    arrange(datadate)
+  mydata <- curr_month[["trt1m"]]
+  mydata2 <- curr_month[["prccm"]]
+  trt1m[,index] = mydata/100
+  prccm[,index] = mydata2
+  index = index + 1
+}
+```
+
+
+```{r}
+# this section converts the data to the form used in the paper
+# use prccm the monthly closing price to calculate the yearly average closing price
+price_yearly <-  matrix(rep(0, 30*length(list)), nrow = 30, ncol = length(list))
+for (i in 1:30) {
+  price_yearly[i, ] = colMeans(prccm[ ((i-1) * 12 + 1):(i*12), ])
+}
+# use trt1m, the monthly return to calculate the compounded yearly return
+gain_monthly <- 1 + trt1m/100
+compounded_return_yearly <-  matrix(rep(1, 30*length(list)), nrow = 30, ncol = length(list))
+for (i in 1:30) {
+  for (j in 1:length(list)){
+    for (k in 1:12) {
+      compounded_return_yearly[i, j] = compounded_return_yearly[i, j] * gain_monthly[(i-1) * 12 + k, j]
+    }
+    compounded_return_yearly[i, j] = compounded_return_yearly[i, j]^(1/12) - 1
+  }
+  # normalize for each year
+  compounded_return_yearly[i, ] = (compounded_return_yearly[i, ] - mean(compounded_return_yearly[i,]))/sd(compounded_return_yearly[i, ])
+}
+#summary(compounded_return_yearly[1, ])
+
+# calculate the Market equity using the shares outstanding and the average yearly closing price
+# csho, is in Million
+# take log as done in the paper
+market_cap <- csho * price_yearly
+ME_yearly <- log(csho * price_yearly)
+for (i in 1:30) {
+  ME_yearly[i,] = (ME_yearly[i,] - mean(ME_yearly[i,]))/sd(ME_yearly[i,])
+}
+
+# book-to-market ratio
+btm_yearly <- log(1 +  bkvlps/price_yearly)
+for (i in 1:30) {
+  btm_yearly[i,] = (btm_yearly[i,] - mean(btm_yearly[i,]))/sd(btm_yearly[i,])
+}
+
+```
+
+
+```{r}
+write.table(market_cap, file = "market_cap_yearly.csv", row.names = F, col.names=F, sep=",")
+write.table(compounded_return_yearly, file = "compounded_return_yearly.csv", row.names = F, col.names=F, sep=",")
+write.table(ME_yearly, file = "ME_yearly.csv", row.names = F, col.names=F, sep=",")
+write.table(btm_yearly, file = "btm_yearly.csv", row.names = F, col.names=F, sep=",")
+write.table(trt1m, file = "monthly_return.csv", row.names = F, col.names=F, sep=",")
+
+```
+
+
+```{r}
+
+```
